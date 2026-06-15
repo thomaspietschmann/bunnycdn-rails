@@ -1,0 +1,39 @@
+name: Release gem
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      id-token: write
+
+    # Keep this aligned with the RubyGems trusted publisher configuration.
+    environment: release
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ruby
+          bundler-cache: true
+
+      - name: Run checks
+        run: |
+          bundle exec rake test
+          bundle exec rubocop --config .rubocop.yml lib test bunny_cdn.gemspec Rakefile
+
+      # Trusted Publishing: no API key secret needed once configured on
+      # RubyGems.org. This workflow stays inactive until you rename this file
+      # from `.yml.example` to `.yml`.
+      - name: Publish gem
+        uses: rubygems/release-gem@v1

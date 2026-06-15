@@ -1,0 +1,3 @@
+module Bunnycdn
+  VERSION: String
+end
