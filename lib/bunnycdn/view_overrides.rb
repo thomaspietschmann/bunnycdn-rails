@@ -42,16 +42,24 @@ module Bunnycdn
       end
     end
 
-    # Bunny transformation URLs are already absolute, so for the enhanced path
-    # image_url and image_path produce the same result.
+    # For CDN-backed sources image_url and image_path produce the same absolute URL.
+    # When no zone is configured (local dev) image_path returns a relative path
+    # with any transform query already appended; we convert it to absolute by
+    # passing the already-resolved path to super, preserving the query string.
     def image_url(source, options = {})
       bunny_enabled, clean_options = extract_bunny_option(options)
-      return super(source, clean_options) unless enhance? && bunny_enabled
+      # Re-inject bunny: false so image_path (called transitively by super →
+      # image_url → image_path) also bypasses Bunny enhancement.
+      return super(source, clean_options.merge(bunny: false)) unless enhance? && bunny_enabled
 
-      url = image_path(source, clean_options)
-      return url if Bunnycdn::Support.upload_source?(source)
+      path = image_path(source, clean_options)
+      return path if Bunnycdn::Support.upload_source?(source)
+      return path if Bunnycdn::Support.absolute_url?(path)
 
-      Bunnycdn::Support.absolute_url?(url) ? url : super(source, clean_options)
+      # Relative path: call super on the resolved path (not the original source)
+      # so the host is prepended without re-running asset resolution, which
+      # would drop any transform query string that image_path already appended.
+      super(path, {})
     end
 
     def image_tag(source, options = {})

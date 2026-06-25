@@ -44,6 +44,7 @@ class TestBunnycdnRails < Minitest::Test
 
   def test_active_storage_strategy
     Bunnycdn.configure { |c| c.upload_strategy = :active_storage }
+
     assert_predicate Bunnycdn.configuration, :active_storage_uploads?
   end
 
@@ -57,5 +58,57 @@ class TestBunnycdnRails < Minitest::Test
     assert_raises(Bunnycdn::Error) do
       Bunnycdn.configure { |c| c.default_quality = 0 }
     end
+  end
+
+  def test_validates_default_quality_upper_bound
+    assert_raises(Bunnycdn::Error) do
+      Bunnycdn.configure { |c| c.default_quality = 101 }
+    end
+  end
+
+  def test_validates_default_quality_must_be_integer
+    assert_raises(Bunnycdn::Error) do
+      Bunnycdn.configure { |c| c.default_quality = 85.5 }
+    end
+  end
+
+  def test_validates_static_zone_url
+    assert_raises(Bunnycdn::Error) do
+      Bunnycdn.configure { |c| c.static_zone_url = "not-a-url" }
+    end
+  end
+
+  def test_url_validation_rejects_http_prefix_lookalikes
+    assert_raises(Bunnycdn::Error) do
+      Bunnycdn.configure { |c| c.uploads_zone_url = "httpfoo://bad" }
+    end
+  end
+
+  def test_validates_upload_path_pattern_must_be_regexp
+    assert_raises(Bunnycdn::Error) do
+      Bunnycdn.configure { |c| c.upload_path_pattern = "not-a-regexp" }
+    end
+  end
+
+  def test_validates_upload_path_pattern_requires_two_captures
+    assert_raises(Bunnycdn::Error) do
+      Bunnycdn.configure { |c| c.upload_path_pattern = /\A(.+)\z/ }
+    end
+  end
+
+  def test_valid_upload_path_pattern_with_two_captures
+    Bunnycdn.configure { |c| c.upload_path_pattern = %r{\A(media)/(.+)\z} }
+
+    assert_equal %r{\A(media)/(.+)\z}, Bunnycdn.configuration.upload_path_pattern
+  end
+
+  def test_default_quality_boundary_values_are_valid
+    Bunnycdn.configure { |c| c.default_quality = 1 }
+
+    assert_equal 1, Bunnycdn.configuration.default_quality
+
+    Bunnycdn.configure { |c| c.default_quality = 100 }
+
+    assert_equal 100, Bunnycdn.configuration.default_quality
   end
 end

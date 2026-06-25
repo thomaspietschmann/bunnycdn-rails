@@ -82,11 +82,11 @@ module Bunnycdn
     end
 
     def validate!
-      if uploads_zone_url && !uploads_zone_url.start_with?("http")
+      if uploads_zone_url && !uploads_zone_url.match?(%r{\Ahttps?://})
         raise Error, "uploads_zone_url must be a full URL (https://...)"
       end
 
-      if static_zone_url && !static_zone_url.start_with?("http")
+      if static_zone_url && !static_zone_url.match?(%r{\Ahttps?://})
         raise Error, "static_zone_url must be a full URL (https://...)"
       end
 
@@ -94,15 +94,33 @@ module Bunnycdn
         raise Error, "default_quality must be nil or an integer between 1 and 100"
       end
 
-      return if UPLOAD_STRATEGIES.include?(upload_strategy)
+      unless UPLOAD_STRATEGIES.include?(upload_strategy)
+        raise Error, "upload_strategy must be one of #{UPLOAD_STRATEGIES.inspect}"
+      end
 
-      raise Error, "upload_strategy must be one of #{UPLOAD_STRATEGIES.inspect}"
+      validate_upload_path_pattern!
     end
 
     # True when uploads are delivered through the attachment's own ActiveStorage
     # URL rather than an S3 auto-upload-mapping path.
     def active_storage_uploads?
       upload_strategy == :active_storage
+    end
+
+    private
+
+    def validate_upload_path_pattern!
+      pat = upload_path_pattern
+      return if pat == DEFAULT_UPLOAD_PATH_PATTERN
+
+      raise Error, "upload_path_pattern must be a Regexp" unless pat.is_a?(Regexp)
+
+      # Require at least two capture groups so consumers can safely call match[2].
+      captures = pat.source.scan(/(?<!\\)\((?!\?[<:=!])/).size
+      return if captures >= 2
+
+      raise Error, "upload_path_pattern must have at least 2 capture groups " \
+                   "(group 1: prefix/folder, group 2: blob key)"
     end
   end
 end

@@ -22,6 +22,14 @@ changes.
 - **Native helpers** — `bunny_image_tag`, `bunny_upload_url`,
   `bunny_static_url`, `bunny_bg_image_style`, `bunny_upload_path`, and
   `bunny_download_url`.
+- **Responsive `srcset`** — pass `widths: [400, 800, 1200]` to
+  `bunny_image_tag` to emit a W-descriptor `srcset` automatically; combine
+  with `sizes:` for full browser-side resolution.
+- **`<picture>` helper** — `bunny_picture_tag` wraps per-format `<source>`
+  tags (`:avif`, `:webp`, …) around a fallback `<img>`, with optional
+  per-format `srcset`.
+- **LQIP placeholders** — `bunny_lqip_url` returns a tiny, blurred URL for
+  blur-up lazy loading (LQIP pattern).
 - **Cloudinary-compatible delivery helpers** — `cl_image_tag`, `cl_image_path`,
   `cl_path`, `cloudinary_url`, `upload_path` for common image-delivery migration
   cases.
@@ -229,6 +237,68 @@ bunny_image_tag("images/header.jpg", width: 1600, crop: :limit)
 bunny_image_tag("https://example.com/image.jpg", alt: "Remote image")
 ```
 
+#### Responsive srcset
+
+Pass `widths:` to emit a W-descriptor `srcset`. The smallest width becomes
+the `src` fallback; pair with `sizes:` to let browsers pick the right entry:
+
+```ruby
+bunny_image_tag(
+  article.header_image,
+  widths: [400, 800, 1200],
+  sizes: "(max-width: 600px) 100vw, 800px",
+  alt: "Header"
+)
+# => <img src="…?width=400" srcset="…?width=400 400w, …?width=800 800w, …?width=1200 1200w"
+#         sizes="(max-width: 600px) 100vw, 800px" alt="Header">
+```
+
+#### `<picture>` with format negotiation
+
+`bunny_picture_tag` wraps per-format `<source>` tags around a fallback `<img>`
+tag. This lets browsers that support AVIF or WebP pick the most efficient
+format, with a JPEG/PNG fallback for others:
+
+```ruby
+bunny_picture_tag(
+  article.header_image,
+  formats: [:avif, :webp],
+  widths:  [400, 800, 1200],
+  sizes:   "(max-width: 600px) 100vw, 800px",
+  alt:     "Header"
+)
+# => <picture>
+#      <source srcset="…?format=avif&width=400 400w, … 1200w" type="image/avif" sizes="…">
+#      <source srcset="…?format=webp&width=400 400w, … 1200w" type="image/webp" sizes="…">
+#      <img src="…?width=400" srcset="…" sizes="…" alt="Header">
+#    </picture>
+```
+
+When `widths:` is omitted, each `<source>` emits a single URL without a
+width descriptor. `formats:` defaults to `[:webp]`.
+
+#### LQIP placeholders
+
+`bunny_lqip_url` returns a tiny, blurred URL for blur-up lazy loading (LQIP
+pattern). Use it as `data-src` or an inline `src` before the full image loads:
+
+```ruby
+lqip = bunny_lqip_url(article.header_image)
+# => "https://uploads.b-cdn.net/…?width=32&quality=20&blur=15"
+
+# Custom size/quality/blur:
+bunny_lqip_url(article.header_image, width: 40, quality: 10, blur: 20)
+```
+
+```erb
+<%# Blur-up lazy load pattern %>
+<img
+  src="<%= bunny_lqip_url(article.header_image) %>"
+  data-src="<%= bunny_upload_url(article.header_image, width: 1200) %>"
+  class="lazyload"
+  alt="...">
+```
+
 URL-only helpers are more specific:
 
 ```ruby
@@ -279,7 +349,7 @@ cl_path upload_path(user.avatar), width: 200, height: 200, crop: :thumb,
 | `gravity: :north…` | `crop_gravity=…` | |
 | `quality: :auto` | `quality=<default_quality>` or omitted | uses configured fallback only when set |
 | `quality: 75` | `quality=75` | |
-| `fetch_format: :auto` | *(omitted)* | enable WebP globally in Optimizer |
+| `fetch_format: :auto` | *(format param omitted)* | auto-negotiated by Bunny's global WebP/AVIF setting; also suppresses any configured `default_format` |
 | `format: :jpg` | `format=jpeg` | Bunny documents `jpeg` |
 | `effect: :grayscale` | `saturation=-100` | **Bunny has no grayscale param** |
 | `effect: "blur:10"` | `blur=10` | |

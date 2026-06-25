@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: Ruby ${{ matrix.ruby }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ruby:
+          - "3.2"
+          - "3.3"
+          - "3.4"
+          - head
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Ruby ${{ matrix.ruby }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+        continue-on-error: ${{ matrix.ruby == 'head' }}
+
+      - name: Run tests
+        run: bundle exec rake test
+        continue-on-error: ${{ matrix.ruby == 'head' }}
+
+      - name: RuboCop
+        run: bundle exec rubocop
+        # Only enforce style on the primary version to keep the matrix fast.
+        if: matrix.ruby == '3.4'

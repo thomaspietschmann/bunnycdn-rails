@@ -5,19 +5,41 @@ module Bunnycdn
   # gem is loaded via the Railtie. These are the helpers to migrate towards
   # once the Cloudinary compatibility layer is no longer needed.
   module ImageHelper
-    # <img> tag with a Bunny CDN URL for an image source.
+    # MIME types used by bunny_picture_tag for <source type="…"> attributes.
+    PICTURE_MIME_TYPES = {
+      "webp" => "image/webp",
+      "avif" => "image/avif",
+      "jpeg" => "image/jpeg",
+      "jpg" => "image/jpeg",
+      "png" => "image/png",
+      "gif" => "image/gif"
+    }.freeze
+
+    # <img> tag with a Bunny CDN URL. Supports responsive srcset via `widths:`.
     #
     #   bunny_image_tag(article.header_image, width: 800, alt: "Header")
-    #   bunny_image_tag("uploads-production/abc123", width: 800)
-    #   bunny_image_tag("header.jpg", width: 1600)
-    #   bunny_image_tag("https://example.com/image.jpg", alt: "Remote")
+    #   bunny_image_tag("header.jpg", widths: [400, 800, 1200], sizes: "(max-width: 600px) 100vw, 50vw")
     def bunny_image_tag(source, **options)
+      widths = options.delete(:widths)
       transform, html = Bunnycdn::Support.split_options(options)
-      url = bunny_image_source_url(source, transform)
+      # sizes is a valid HTML attribute for srcset images; it flows into html
+      # naturally since it is not a TRANSFORM_KEY.
 
-      return "" if url.to_s.empty?
+      if widths
+        srcset = widths.filter_map do |w|
+          url = bunny_image_source_url(source, transform.merge(width: w))
+          "#{url} #{w}w" unless url.to_s.empty?
+        end.join(", ")
+        fallback_url = bunny_image_source_url(source, transform.merge(width: widths.min))
+        return "" if fallback_url.to_s.empty?
 
-      image_tag(url, bunny: false, **html)
+        image_tag(fallback_url, bunny: false, srcset: srcset, **html)
+      else
+        url = bunny_image_source_url(source, transform)
+        return "" if url.to_s.empty?
+
+        image_tag(url, bunny: false, **html)
+      end
     end
 
     # Bunny CDN URL for an uploaded file (no <img> tag) — for meta tags, JSON…
@@ -53,9 +75,11 @@ module Bunnycdn
 
     # Inline CSS background-image style for CMS-style background image helpers.
     #
-    #   bunny_bg_image_style("header-data-and-ai.jpg", width: 2560)
+    #   style: bunny_bg_image_style("header-data-and-ai.jpg", width: 2560)
     def bunny_bg_image_style(path, **)
-      "background-image: url('#{bunny_static_url(path, **)}');"
+      url = bunny_static_url(path, **)
+      # Escape single quotes so the URL cannot break out of the CSS url('…') context.
+      "background-image: url('#{url.gsub("'", "%27")}');"
     end
 
     # The prefixed upload path for an ActiveStorage attachment,
@@ -75,7 +99,65 @@ module Bunnycdn
     def bunny_download_url(upload)
       return "" unless attached?(upload)
 
-      Bunnycdn::UrlBuilder.upload_url(upload_delivery_key(upload))
+      if Bunnycdn.configuration.uploads_zone_url
+        Bunnycdn::UrlBuilder.upload_url(upload_delivery_key(upload))
+      else
+        # No zone configured (local dev): fall back gracefully like the other helpers.
+        active_storage_path(upload)
+      end
+    end
+
+    # A <picture> element with per-format <source> entries and a fallback <img>.
+    #
+    #   bunny_picture_tag(article.header_image,
+    #                     formats: [:avif, :webp],
+    #                     widths: [400, 800, 1200],
+    #                     sizes: "(max-width: 600px) 100vw, 50vw",
+    #                     alt: "Header")
+    #
+    # Each format gets its own <source srcset="…" type="…"> element. The fallback
+    # <img> uses the original format with srcset support when widths are given.
+    def bunny_picture_tag(source, formats: [:webp], widths: nil, sizes: nil, **options)
+      transform, = Bunnycdn::Support.split_options(options)
+
+      source_tags = formats.map do |fmt|
+        fmt_key = fmt.to_s.downcase
+        mime = PICTURE_MIME_TYPES.fetch(fmt_key, "image/#{fmt_key}")
+        fmt_opts = transform.merge(format: fmt.to_sym)
+
+        if widths
+          srcset = widths.filter_map do |w|
+            url = bunny_image_source_url(source, fmt_opts.merge(width: w))
+            "#{url} #{w}w" unless url.to_s.empty?
+          end.join(", ")
+          sizes_attr = sizes ? " sizes=\"#{sizes}\"" : ""
+          "<source srcset=\"#{srcset}\" type=\"#{mime}\"#{sizes_attr}>"
+        else
+          url = bunny_image_source_url(source, fmt_opts)
+          "<source srcset=\"#{url}\" type=\"#{mime}\">"
+        end
+      end
+
+      # Fallback <img> — reuse bunny_image_tag so all strategies and edge cases
+      # (upload detection, AS path, srcset, etc.) are handled consistently.
+      img_opts = options.dup
+      img_opts[:widths] = widths if widths
+      img_opts[:sizes] = sizes if sizes
+      img_html = bunny_image_tag(source, **img_opts)
+
+      return "" if img_html.to_s.empty?
+
+      "<picture>#{source_tags.join}#{img_html}</picture>"
+    end
+
+    # Returns a tiny, blurred placeholder URL for blur-up lazy loading (LQIP).
+    #
+    #   data_lqip: bunny_lqip_url(article.header_image, width: 32, quality: 20)
+    #
+    # Pair with a full-resolution URL (bunny_upload_url / bunny_image_tag) and
+    # a lazy-loading JS library that swaps the placeholder for the full image.
+    def bunny_lqip_url(source, width: 32, quality: 20, blur: 15)
+      bunny_image_source_url(source, width: width, quality: quality, blur: blur)
     end
 
     private

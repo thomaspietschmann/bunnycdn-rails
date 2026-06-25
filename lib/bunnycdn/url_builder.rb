@@ -13,8 +13,10 @@ module Bunnycdn
   #
   class UrlBuilder
     # Keys that are transformation parameters (everything else is an HTML attribute).
+    # `widths` is a helper-level option for responsive srcset; including it here
+    # prevents it from leaking as an HTML attribute through split_options.
     TRANSFORM_KEYS = %i[
-      width height crop gravity quality fetch_format format effect
+      width height widths crop gravity quality fetch_format format effect
       dpr secure transformation aspect_ratio optimizer sharpen blur sepia
       brightness contrast saturation hue gamma tint flip flop rotate
       angle upscaling focus_crop page flags
@@ -67,7 +69,7 @@ module Bunnycdn
         query = transformer.to_query_string
 
         base_url = base_url.chomp("/")
-        path = path.sub(%r{\A/}, "")
+        path = path.delete_prefix("/")
 
         url = "#{base_url}/#{path}"
         url += "?#{query}" unless query.empty?

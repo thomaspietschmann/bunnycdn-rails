@@ -1,5 +1,11 @@
 # Mirrors the innoq.com-cms house style so the gem stays consistent with the
 # codebase that consumes it.
+
+plugins:
+  - rubocop-minitest
+  - rubocop-performance
+  - rubocop-rake
+
 AllCops:
   TargetRubyVersion: 3.2
   NewCops: enable
@@ -39,4 +45,20 @@ Metrics/ModuleLength:
 Metrics/ParameterLists:
   Enabled: false
 Metrics/PerceivedComplexity:
+  Enabled: false
+
+# ==== Minitest plugin ====
+
+# Our test methods naturally contain multiple assertions — keep a generous limit.
+Minitest/MultipleAssertions:
+  Max: 15
+
+# We use assert_match and assert_includes deliberately; don't enforce one style.
+Minitest/AssertMatch:
+  Enabled: false
+
+# ==== Performance plugin ====
+
+# We use string format patterns that are already idiomatic; avoid noise.
+Performance/StringIdentifierArgument:
   Enabled: false

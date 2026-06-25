@@ -74,11 +74,8 @@ module Bunnycdn
     end
 
     # Returns the query string portion: "width=800&saturation=-100".
-    # Bunny expects literal commas in crop=W,H, so values are not URL-encoded;
-    # every value we emit (integers, "true", gravity keywords, "W,H") is already
-    # URL-safe.
     def to_query_string
-      to_params.map { |k, v| "#{k}=#{v}" }.join("&")
+      to_params.map { |k, v| "#{k}=#{encode_query_value(v)}" }.join("&")
     end
 
     private
@@ -172,7 +169,14 @@ module Bunnycdn
     end
 
     def apply_format(params)
-      format = normalize_format(@options[:format] || @options[:fetch_format])
+      raw = @options[:format] || @options[:fetch_format]
+
+      # :auto / "auto" → let Bunny's global WebP/AVIF setting handle negotiation.
+      # Suppress even the configured default_format so the caller's explicit
+      # intent (auto-negotiate) is respected.
+      return if !raw.nil? && raw.to_s.casecmp("auto").zero?
+
+      format = normalize_format(raw)
       default = normalize_format(Bunnycdn.configuration.default_format)
 
       if IMAGE_FORMATS.include?(format)
@@ -180,8 +184,7 @@ module Bunnycdn
       elsif IMAGE_FORMATS.include?(default)
         params[:format] = default
       end
-      # :auto, nil, or non-image formats (e.g. :pdf) → rely on Bunny Optimizer's
-      # global WebP/AVIF setting, or serve the original asset untouched.
+      # nil or non-image formats (e.g. :pdf) → serve the original asset untouched.
     end
 
     def apply_direct_transformations(params)
@@ -231,6 +234,14 @@ module Bunnycdn
       return unless value
 
       value.delete_prefix("#").downcase
+    end
+
+    # Encode query-string values to prevent parameter injection.
+    # Commas and colons are left intact: they appear in valid Bunny param values
+    # such as crop ("400,300") and aspect_ratio ("16:9"), and Bunny expects them
+    # as literal characters.
+    def encode_query_value(value)
+      value.to_s.gsub(/[ &=+#%<>"']/) { |c| format("%%%02X", c.ord) }
     end
 
     def normalize_format(value)

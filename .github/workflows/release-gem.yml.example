@@ -17,7 +17,7 @@ jobs:
     environment: release
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
@@ -30,7 +30,7 @@ jobs:
       - name: Run checks
         run: |
           bundle exec rake test
-          bundle exec rubocop --config .rubocop.yml lib test bunny_cdn.gemspec Rakefile
+          bundle exec rubocop --config .rubocop.yml lib test bunnycdn-rails.gemspec Rakefile
 
       # Trusted Publishing: no API key secret needed once configured on
       # RubyGems.org. This workflow stays inactive until you rename this file

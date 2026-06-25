@@ -7,6 +7,9 @@
 /spec/reports/
 /tmp/
 
+# Example / integration test app (kept outside the gem repo per CLAUDE.md)
+/example/
+
 # Editor / OS noise
 /.idea/
 .DS_Store

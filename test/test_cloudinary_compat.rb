@@ -39,16 +39,19 @@ class TestCloudinaryCompat < Minitest::Test
   # stripped — Bunny serves the blob key from the pull zone root.
   def test_cl_path_upload
     url = cl_path("uploads-production/abc123", width: 800, quality: :auto, crop: :limit)
+
     assert_equal "https://uploads.b-cdn.net/abc123?width=800&quality=85", url
   end
 
   def test_cl_path_upload_staging_prefix_is_also_stripped
     url = cl_path("uploads-staging/abc123", width: 800)
+
     assert_equal "https://uploads.b-cdn.net/abc123?width=800", url
   end
 
   def test_cl_path_static
     url = cl_path("images/header.jpg", width: 2000, secure: true)
+
     assert_equal "https://static.b-cdn.net/images/header.jpg?width=2000", url
   end
 
@@ -56,6 +59,7 @@ class TestCloudinaryCompat < Minitest::Test
     url = cl_path("uploads-production/blobkey",
                   secure: true, fetch_format: :auto, quality: :auto,
                   crop: :limit, width: 2000)
+
     assert_equal "https://uploads.b-cdn.net/blobkey?width=2000&quality=85", url
   end
 
@@ -64,6 +68,7 @@ class TestCloudinaryCompat < Minitest::Test
   def test_cl_image_tag_generates_img
     html = cl_image_tag("uploads-production/abc123",
                         width: 400, quality: :auto, class: "hero", alt: "Header")
+
     assert_includes html, "<img src=\"https://uploads.b-cdn.net/abc123?width=400&quality=85\""
     assert_includes html, "class=\"hero\""
     assert_includes html, "alt=\"Header\""
@@ -76,6 +81,7 @@ class TestCloudinaryCompat < Minitest::Test
                         fetch_format: :auto, quality: :auto,
                         effect: :grayscale,
                         class: "avatar__image", loading: "lazy")
+
     assert_includes html, "saturation=-100" # grayscale → desaturate (Bunny has no grayscale)
     refute_includes html, "grayscale"
     assert_includes html, "crop=1600,1600"
@@ -139,12 +145,14 @@ class TestCloudinaryCompat < Minitest::Test
 
   def test_cl_path_passes_through_absolute_url
     url = cl_path("https://cdn.bannerbear.com/render/abc.png", width: 400)
+
     assert_equal "https://cdn.bannerbear.com/render/abc.png", url
   end
 
   def test_cl_image_tag_passes_through_absolute_url
     html = cl_image_tag("https://example.s3.eu-central-1.amazonaws.com/key.pdf",
                         width: "1600", page: 2, class: "slide")
+
     assert_includes html, "src=\"https://example.s3.eu-central-1.amazonaws.com/key.pdf\""
     assert_includes html, "class=\"slide\""
   end
@@ -153,12 +161,14 @@ class TestCloudinaryCompat < Minitest::Test
 
   def test_percentage_width_becomes_html_attribute
     html = cl_image_tag("uploads-production/abc123", width: "100%")
+
     assert_includes html, "width=\"100%\""
     refute_includes html, "?width" # not a CDN transform
   end
 
   def test_px_height_becomes_unitless_html_attribute
     html = cl_image_tag("uploads-production/abc123", height: "400px")
+
     assert_includes html, "height=\"400\""
     refute_includes html, "height=400&"
   end
@@ -167,6 +177,7 @@ class TestCloudinaryCompat < Minitest::Test
 
   def test_cl_image_path
     url = cl_image_path("uploads-production/abc123", width: 800, quality: :auto)
+
     assert_equal "https://uploads.b-cdn.net/abc123?width=800&quality=85", url
   end
 
@@ -174,6 +185,7 @@ class TestCloudinaryCompat < Minitest::Test
 
   def test_cloudinary_url_ignores_flags
     url = cloudinary_url("uploads-production/pdf_key", flags: "attachment:my-book")
+
     assert_equal "https://uploads.b-cdn.net/pdf_key", url
     refute_includes url, "attachment"
     refute_includes url, "flags"
@@ -184,11 +196,13 @@ class TestCloudinaryCompat < Minitest::Test
   def test_upload_path_with_attachment_stub
     upload = Struct.new(:key).new("abc123blob")
     path = upload_path(upload)
+
     assert_equal "uploads-production/abc123blob", path
   end
 
   def test_upload_path_with_string
     path = upload_path("raw_key")
+
     assert_equal "uploads-production/raw_key", path
   end
 end

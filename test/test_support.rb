@@ -44,12 +44,14 @@ class TestSupport < Minitest::Test
   def test_upload_path_match_captures_env_and_key
     Bunnycdn.reset_configuration!
     match = S.upload_path_match("uploads-staging/abc123def")
+
     assert_equal "uploads-staging", match[1]
     assert_equal "abc123def", match[2]
   end
 
   def test_upload_path_match_is_nil_for_static_and_absolute
     Bunnycdn.reset_configuration!
+
     assert_nil S.upload_path_match("images/header.jpg")
     assert_nil S.upload_path_match("https://cdn.example.com/x.png")
   end
@@ -58,6 +60,7 @@ class TestSupport < Minitest::Test
     Bunnycdn.reset_configuration!
     Bunnycdn.configuration.upload_path_pattern = %r{\A(media)/(.+)\z}
     match = S.upload_path_match("media/key123")
+
     assert_equal "media", match[1]
     assert_equal "key123", match[2]
   ensure

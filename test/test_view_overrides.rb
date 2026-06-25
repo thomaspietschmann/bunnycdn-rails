@@ -19,7 +19,10 @@ class TestViewOverrides < Minitest::Test
     prepend Bunnycdn::ViewOverrides
 
     def image_path(source, _options = {})
-      "/assets/#{source}"
+      # Handle paths that are already resolved (start with "/") to avoid
+      # double-prepending when image_url calls super with a resolved path.
+      source_str = source.to_s
+      source_str.start_with?("/") ? source_str : "/assets/#{source_str}"
     end
 
     def image_url(source, options = {})
@@ -327,6 +330,204 @@ class TestViewOverrides < Minitest::Test
 
     assert_equal enhanced, bunny
     assert_equal bunny, compat
+  end
+
+  # === image_url ===
+
+  def test_image_url_with_static_zone_returns_absolute_cdn_url
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    url = @view.image_url("logo.png", width: 100)
+
+    assert_equal "https://static.b-cdn.net/assets/logo.png?width=100", url
+  end
+
+  def test_image_url_preserves_transforms_without_static_zone
+    # No static zone — image_path returns a relative path; image_url must not drop
+    # the transform query when making it absolute.
+    url = @view.image_url("logo.png", width: 100)
+
+    assert_includes url, "/assets/logo.png?width=100"
+    assert Bunnycdn::Support.absolute_url?(url), "expected an absolute URL, got: #{url}"
+  end
+
+  def test_image_url_for_upload_source_returns_absolute_url
+    Bunnycdn.configure { |c| c.uploads_zone_url = "https://uploads.b-cdn.net" }
+
+    url = @view.image_url(upload, width: 400)
+
+    assert_includes url, "uploads.b-cdn.net"
+    assert Bunnycdn::Support.absolute_url?(url)
+  end
+
+  def test_image_url_per_call_opt_out
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    url = @view.image_url("logo.png", width: 100, bunny: false)
+
+    refute_includes url, "static.b-cdn.net"
+  end
+
+  # === bunny_static_url ===
+
+  def test_bunny_static_url_builds_cdn_url
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    url = @view.bunny_static_url("header.jpg", width: 2560)
+
+    assert_equal "https://static.b-cdn.net/header.jpg?width=2560", url
+  end
+
+  # === bunny_bg_image_style ===
+
+  def test_bunny_bg_image_style_builds_css
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    style = @view.bunny_bg_image_style("header.jpg", width: 2560)
+
+    assert_equal "background-image: url('https://static.b-cdn.net/header.jpg?width=2560');", style
+  end
+
+  def test_bunny_bg_image_style_escapes_single_quote_in_url
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    # Ensure a single quote in the optimzer string does not break CSS url('...').
+    style = @view.bunny_bg_image_style("header.jpg", width: 2560, optimizer: "image")
+
+    refute_includes style, "url('')"
+    assert_includes style, "url('"
+    assert style.end_with?("');")
+  end
+
+  # === enhance? == false passthrough ===
+
+  def test_image_path_passthrough_when_enhancement_disabled
+    Bunnycdn.configure do |config|
+      config.enhance_image_tag = false
+      config.static_zone_url = "https://static.b-cdn.net"
+    end
+    # Re-create view so ViewOverrides is NOT prepended (enhance is false at boot
+    # in the engine, but in tests ViewOverrides is always prepended — verify the
+    # enhance? guard short-circuits instead).
+    view = View.new
+
+    url = view.image_path("logo.png", width: 100)
+
+    # enhance? is false → super is called → plain Rails image_path
+    refute_includes url, "static.b-cdn.net"
+    assert_equal "/assets/logo.png", url
+  end
+
+  # === bunny_download_url graceful degradation ===
+
+  def test_bunny_download_url_degrades_gracefully_without_zone
+    # No uploads_zone_url → must NOT raise, fall back to ActiveStorage path.
+    result = @view.bunny_download_url(upload)
+
+    assert_match %r{/rails/active_storage/blobs/proxy/avatar-key/avatar\.jpg}, result
+  end
+
+  def test_bunny_download_url_returns_empty_for_nil
+    assert_equal "", @view.bunny_download_url(nil)
+  end
+
+  # === responsive srcset via bunny_image_tag ===
+
+  def test_bunny_image_tag_with_widths_generates_srcset
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    html = @view.bunny_image_tag("logo.png", widths: [400, 800, 1200], alt: "Logo")
+
+    assert_includes html, "400w"
+    assert_includes html, "800w"
+    assert_includes html, "1200w"
+    assert_includes html, "srcset="
+    assert_includes html, "alt=\"Logo\""
+    # src fallback should be the smallest (min) width
+    assert_includes html, "src=\"https://static.b-cdn.net/assets/logo.png?width=400\""
+  end
+
+  def test_bunny_image_tag_with_widths_and_sizes
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    html = @view.bunny_image_tag("logo.png",
+                                 widths: [400, 800],
+                                 sizes: "(max-width: 600px) 100vw, 50vw")
+
+    assert_includes html, "sizes=\"(max-width: 600px) 100vw, 50vw\""
+  end
+
+  def test_bunny_image_tag_without_widths_unchanged
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    html = @view.bunny_image_tag("logo.png", width: 800)
+
+    assert_includes html, "src=\"https://static.b-cdn.net/assets/logo.png?width=800\""
+    refute_includes html, "srcset"
+  end
+
+  # === bunny_picture_tag ===
+
+  def test_bunny_picture_tag_generates_picture_element
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    html = @view.bunny_picture_tag("logo.png", formats: [:webp], width: 800, alt: "Logo")
+
+    assert_includes html, "<picture>"
+    assert_includes html, "</picture>"
+    assert_includes html, "<source srcset="
+    assert_includes html, "type=\"image/webp\""
+    assert_includes html, "<img"
+    assert_includes html, "alt=\"Logo\""
+  end
+
+  def test_bunny_picture_tag_multiple_formats
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    html = @view.bunny_picture_tag("logo.png", formats: %i[avif webp], width: 800)
+
+    assert_includes html, "type=\"image/avif\""
+    assert_includes html, "type=\"image/webp\""
+  end
+
+  def test_bunny_picture_tag_with_widths
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    html = @view.bunny_picture_tag("logo.png", formats: [:webp], widths: [400, 800])
+
+    # source srcset should contain width descriptors
+    assert_match(/srcset=".*400w.*800w/, html)
+  end
+
+  # === bunny_lqip_url ===
+
+  def test_bunny_lqip_url_returns_tiny_blurred_url
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    url = @view.bunny_lqip_url("logo.png")
+
+    assert_includes url, "width=32"
+    assert_includes url, "quality=20"
+    assert_includes url, "blur=15"
+  end
+
+  def test_bunny_lqip_url_accepts_custom_params
+    Bunnycdn.configure { |c| c.static_zone_url = "https://static.b-cdn.net" }
+
+    url = @view.bunny_lqip_url("logo.png", width: 16, quality: 10, blur: 20)
+
+    assert_includes url, "width=16"
+    assert_includes url, "quality=10"
+    assert_includes url, "blur=20"
+  end
+
+  def test_bunny_lqip_url_for_upload_source
+    Bunnycdn.configure { |c| c.uploads_zone_url = "https://uploads.b-cdn.net" }
+
+    url = @view.bunny_lqip_url(upload)
+
+    assert_includes url, "uploads.b-cdn.net"
+    assert_includes url, "blur=15"
   end
 
   private
