@@ -19,8 +19,8 @@
   passed (as `format: :auto` or `fetch_format: :auto`), the configured `default_format`
   is now bypassed so Bunny's global WebP/AVIF setting negotiates the format instead.
 - **SimpleCov** with branch coverage wired into the test suite.
-- **CI workflow** (`.github/workflows/ci.yml`) — tests on Ruby 3.2, 3.3, 3.4, and head
-  (head with allow-failure); RuboCop enforced on 3.4.
+- **CI workflow** (`.github/workflows/ci.yml`) — tests on Ruby 3.3, 3.4, 4.0, and head
+  (head with allow-failure); RuboCop enforced on 4.0.
 - **Dependabot** config for weekly Bundler + GitHub Actions version bumps.
 - **`.ruby-version`** set to `3.4` to pin the recommended development Ruby.
 
