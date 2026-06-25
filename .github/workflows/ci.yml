@@ -13,9 +13,9 @@ jobs:
       fail-fast: false
       matrix:
         ruby:
-          - "3.2"
           - "3.3"
           - "3.4"
+          - "4.0"
           - head
 
     steps:
@@ -35,4 +35,4 @@ jobs:
       - name: RuboCop
         run: bundle exec rubocop
         # Only enforce style on the primary version to keep the matrix fast.
-        if: matrix.ruby == '3.4'
+        if: matrix.ruby == '4.0'
