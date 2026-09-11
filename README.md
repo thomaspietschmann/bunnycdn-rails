@@ -30,6 +30,8 @@ changes.
   per-format `srcset`.
 - **LQIP placeholders** — `bunny_lqip_url` returns a tiny, blurred URL for
   blur-up lazy loading (LQIP pattern).
+- **Image Classes** — `image_class: :thumbnail` selects a Bunny transformation
+  preset while `class:` remains the HTML/CSS class.
 - **Cloudinary-compatible delivery helpers** — `cl_image_tag`, `cl_image_path`,
   `cl_path`, `cloudinary_url`, `upload_path` for common image-delivery migration
   cases.
@@ -104,7 +106,7 @@ Bunnycdn.configure do |config|
   # to Bunny URLs. Set false if you only want to call bunny_* helpers explicitly.
   config.enhance_image_tag = true
 
-  # Optional default quality (1-100). Leave nil to use Bunny's pull-zone
+  # Optional default quality (0-100). Leave nil to use Bunny's pull-zone
   # quality setting from the dashboard instead of emitting `quality=...`.
   config.default_quality = nil
 
@@ -151,6 +153,26 @@ end
    `:mapping`. Enable Bunny Optimizer → Dynamic Image API.
 2. **Static pull zone** — origin = your web server.
 3. **WebP/AVIF** — enable in Optimizer → Settings (replaces `fetch_format: :auto`).
+
+### Bunny platform updates (checked September 11, 2026)
+
+The [Bunny changelog](https://bunny.net/docs/changelog) includes these relevant
+updates since this gem's June review:
+
+| Update | Impact on this gem / your app |
+|---|---|
+| June 26: AVIF, HEIC and HEIF became generally available | AVIF output was already supported. Mapping uploads now also recognize HEIC/HEIF filenames without MIME metadata. HEIC/HEIF are input formats only. |
+| July 9 and August 14: Storage S3 API public preview and compatibility improvements | An optional ActiveStorage backend, configured in the app's storage service. The gem continues to generate delivery URLs independently of the storage SDK. See [Bunny S3](https://bunny.net/docs/storage/s3). |
+| July 31: IP Family Policy | IPv4/IPv6 routing is a Pull Zone setting; it does not change generated URLs. See [IP Family Policy](https://bunny.net/docs/cdn/ip-family-policy). |
+| August 21: EEA routing filter and TLS security profiles | Configure these per Pull Zone if needed. They affect delivery locations and client compatibility, without changing helper calls. See [routing filters](https://bunny.net/docs/cdn/performance/routing-filters) and [TLS settings](https://bunny.net/docs/cdn/security/ssl). |
+| September 10: Edge Scripting before-cache execution and Cache API became generally available | Optional infrastructure features; the gem does not execute scripts or manage CDN caches. |
+
+Existing Optimizer constraints also matter: AVIF output is limited to **4
+megapixels**, with automatic fallback above that area, and converting animations
+to AVIF loses animation. Keep WebP available and account for `dpr:` when choosing
+sizes. The gem cannot predict output dimensions from an unknown source image or
+a server-side Image Class, so it leaves format fallback to Bunny. See
+[formats and limits](https://bunny.net/docs/optimizer/dynamic-images/formats).
 
 ## Upload strategies
 
@@ -253,6 +275,26 @@ bunny_image_tag(
 #         sizes="(max-width: 600px) 100vw, 800px" alt="Header">
 ```
 
+#### Image Classes
+
+Define a preset in **Optimizer → Image Classes**, then select it using
+`image_class:` in native helpers, enhanced Rails image helpers, or Cloudinary
+compatibility helpers:
+
+```ruby
+bunny_image_tag("photo.jpg", image_class: :thumbnail, class: "rounded", alt: "Photo")
+# => <img src="https://static.b-cdn.net/assets/photo.jpg?class=thumbnail"
+#         class="rounded" alt="Photo">
+
+bunny_upload_url(user.avatar, image_class: :avatar)
+```
+
+This supports zones with **Forced transformation classes**, where Bunny rejects
+missing or invalid presets with HTTP 403. Create each preset in the dashboard;
+the gem only adds its name to the URL. `class:` always remains an HTML attribute.
+Image Classes are an existing Bunny feature newly exposed by this gem. See
+[Image Classes](https://bunny.net/docs/optimizer/image-classes).
+
 #### `<picture>` with format negotiation
 
 `bunny_picture_tag` wraps per-format `<source>` tags around a fallback `<img>`
@@ -275,7 +317,15 @@ bunny_picture_tag(
 ```
 
 When `widths:` is omitted, each `<source>` emits a single URL without a
-width descriptor. `formats:` defaults to `[:webp]`.
+width descriptor. `formats:` defaults to `[:webp]`. Supported values are
+`:webp`, `:avif`, `:jpeg` (or `:jpg`), `:png`, and `:gif`; other values raise
+`ArgumentError`. The helper returns HTML-safe Rails markup with escaped
+attributes, so it can be rendered directly with `<%= bunny_picture_tag(...) %>`.
+
+The requested MIME type describes the intended format. Bunny can still return
+a different format because of its settings or AVIF area limit; WebP output must
+also be enabled in the dashboard. Use `bunny_image_tag(..., format: :auto)` to
+delegate format selection entirely to Bunny when output dimensions are unknown.
 
 #### LQIP placeholders
 
@@ -348,7 +398,8 @@ cl_path upload_path(user.avatar), width: 200, height: 200, crop: :thumb,
 | `crop: :thumb, gravity: :face` | `face_crop=W,H` | face detection |
 | `gravity: :north…` | `crop_gravity=…` | |
 | `quality: :auto` | `quality=<default_quality>` or omitted | uses configured fallback only when set |
-| `quality: 75` | `quality=75` | |
+| `quality: 75` | `quality=75` | accepts integers or digit strings from 0 to 100; invalid values are omitted |
+| `image_class: :thumbnail` | `class=thumbnail` | named Bunny preset; distinct from the HTML `class:` option |
 | `fetch_format: :auto` | *(format param omitted)* | auto-negotiated by Bunny's global WebP/AVIF setting; also suppresses any configured `default_format` |
 | `format: :jpg` | `format=jpeg` | Bunny documents `jpeg` |
 | `effect: :grayscale` | `saturation=-100` | **Bunny has no grayscale param** |

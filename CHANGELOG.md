@@ -2,6 +2,39 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-09-11
+
+### Added
+
+- `image_class:` selects Bunny Optimizer Image Classes (`class=...`) across
+  native, enhanced Rails, and Cloudinary-compatible helpers, keeping HTML
+  `class:` separate. Supports zones requiring forced transformation classes.
+- HEIC/HEIF filename recognition for mapping uploads without MIME metadata,
+  plus MIME-to-extension fallback when `append_upload_extension` is enabled.
+  TGA and PBM filenames are also recognized as supported Optimizer inputs.
+- Real ActionView/ERB coverage for image helpers, preset delivery, and HTML
+  escaping, alongside regression tests for quality bounds and input formats.
+
+### Fixed
+
+- Accept the documented quality range **0–100**, including `default_quality: 0`.
+  Reject malformed or out-of-range per-image values instead of partially parsing
+  strings such as `"85invalid"` or emitting `quality=101`.
+- `bunny_picture_tag` now returns Rails-safe markup built with Rails tag helpers.
+  Source attributes are escaped and the result renders correctly inside ERB.
+  Unsupported output formats now raise `ArgumentError` instead of emitting
+  misleading MIME types.
+- Query values now also percent-encode UTF-8 bytes and control characters while
+  preserving Bunny's comma/colon parameter syntax.
+
+### Changed
+
+- Refresh dependencies, including Rails 8.1.3.1, Rack 3.2.7, RuboCop 1.91.0,
+  and SimpleCov 1.2.0. Migrate the coverage filter to SimpleCov's `skip` API.
+- Review Bunny's official documentation and changelog as of September 11, 2026.
+  Document AVIF/HEIC/HEIF general availability, AVIF's 4-megapixel output limit
+  and animation restrictions, and relevant S3/CDN/Edge Scripting platform updates.
+
 ## [0.2.0]
 
 ### Added

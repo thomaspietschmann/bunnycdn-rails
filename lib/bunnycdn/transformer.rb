@@ -9,7 +9,7 @@ module Bunnycdn
   # This class maps the Cloudinary conventions used throughout the innoq CMS
   # to their Bunny equivalents, making migration straightforward.
   #
-  # Verified against https://docs.bunny.net/optimizer/dynamic-images (June 2026).
+  # Verified against https://bunny.net/docs/optimizer/dynamic-images/overview (September 2026).
   # Notable differences from Cloudinary, handled here:
   #   * Bunny has no `grayscale` parameter   → emit `saturation=-100`
   #   * Bunny has no `q_auto`                → emit a configured numeric quality,
@@ -139,9 +139,9 @@ module Bunnycdn
       if [:auto, "auto"].include?(quality)
         configured_quality = Bunnycdn.configuration.default_quality
         params[:quality] = configured_quality if configured_quality
-      elsif quality.is_a?(Integer) || quality.is_a?(String)
-        parsed = quality.to_i
-        params[:quality] = parsed if parsed.positive?
+      else
+        parsed = Support.transform_dimension(quality)
+        params[:quality] = parsed if parsed && (0..100).cover?(parsed)
       end
     end
 
@@ -188,6 +188,7 @@ module Bunnycdn
     end
 
     def apply_direct_transformations(params)
+      params[:class] = string_option(@options[:image_class]) if @options.key?(:image_class)
       params[:optimizer] = string_option(@options[:optimizer]) if @options.key?(:optimizer)
       params[:aspect_ratio] = string_option(@options[:aspect_ratio]) if @options.key?(:aspect_ratio)
       params[:focus_crop] = string_option(@options[:focus_crop]) if @options.key?(:focus_crop)
@@ -241,7 +242,7 @@ module Bunnycdn
     # such as crop ("400,300") and aspect_ratio ("16:9"), and Bunny expects them
     # as literal characters.
     def encode_query_value(value)
-      value.to_s.gsub(/[ &=+#%<>"']/) { |c| format("%%%02X", c.ord) }
+      value.to_s.b.gsub(/[^a-zA-Z0-9_.~,:-]/) { |c| format("%%%02X", c.ord) }
     end
 
     def normalize_format(value)

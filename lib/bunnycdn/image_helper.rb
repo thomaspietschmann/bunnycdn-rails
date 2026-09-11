@@ -122,20 +122,20 @@ module Bunnycdn
 
       source_tags = formats.map do |fmt|
         fmt_key = fmt.to_s.downcase
-        mime = PICTURE_MIME_TYPES.fetch(fmt_key, "image/#{fmt_key}")
+        mime = PICTURE_MIME_TYPES.fetch(fmt_key) do
+          raise ArgumentError, "Unsupported picture format: #{fmt.inspect}"
+        end
         fmt_opts = transform.merge(format: fmt.to_sym)
 
-        if widths
-          srcset = widths.filter_map do |w|
-            url = bunny_image_source_url(source, fmt_opts.merge(width: w))
-            "#{url} #{w}w" unless url.to_s.empty?
-          end.join(", ")
-          sizes_attr = sizes ? " sizes=\"#{sizes}\"" : ""
-          "<source srcset=\"#{srcset}\" type=\"#{mime}\"#{sizes_attr}>"
-        else
-          url = bunny_image_source_url(source, fmt_opts)
-          "<source srcset=\"#{url}\" type=\"#{mime}\">"
-        end
+        srcset = if widths
+                   widths.filter_map do |w|
+                     url = bunny_image_source_url(source, fmt_opts.merge(width: w))
+                     "#{url} #{w}w" unless url.to_s.empty?
+                   end.join(", ")
+                 else
+                   bunny_image_source_url(source, fmt_opts)
+                 end
+        tag.source(srcset: srcset, type: mime, sizes: widths ? sizes : nil)
       end
 
       # Fallback <img> — reuse bunny_image_tag so all strategies and edge cases
@@ -147,7 +147,7 @@ module Bunnycdn
 
       return "" if img_html.to_s.empty?
 
-      "<picture>#{source_tags.join}#{img_html}</picture>"
+      tag.picture(safe_join([*source_tags, img_html]))
     end
 
     # Returns a tiny, blurred placeholder URL for blur-up lazy loading (LQIP).
@@ -259,6 +259,8 @@ module Bunnycdn
         "image/webp" => "webp",
         "image/gif" => "gif",
         "image/avif" => "avif",
+        "image/heic" => "heic",
+        "image/heif" => "heif",
         "image/svg+xml" => "svg",
         "application/pdf" => "pdf"
       }[content_type]
@@ -269,7 +271,7 @@ module Bunnycdn
       content_type = target.respond_to?(:content_type) ? target.content_type.to_s.downcase : ""
       return content_type.start_with?("image/") unless content_type.empty?
 
-      %w[jpg jpeg png webp gif avif svg bmp tif tiff].include?(upload_extension(target))
+      %w[jpg jpeg png webp gif avif heic heif svg bmp tif tiff tga pbm].include?(upload_extension(target))
     end
 
     def upload_blob(upload)

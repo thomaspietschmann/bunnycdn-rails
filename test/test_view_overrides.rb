@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "action_view"
 
 class TestViewOverrides < Minitest::Test
   Upload = Struct.new(:key, :filename) do
@@ -14,6 +15,7 @@ class TestViewOverrides < Minitest::Test
   end
 
   class View
+    include ActionView::Helpers::TagHelper
     include Bunnycdn::ImageHelper
     include Bunnycdn::CloudinaryCompat
     prepend Bunnycdn::ViewOverrides
@@ -30,8 +32,7 @@ class TestViewOverrides < Minitest::Test
     end
 
     def image_tag(source, options = {})
-      attrs = options.map { |key, value| "#{key}=\"#{value}\"" }.join(" ")
-      attrs.empty? ? "<img src=\"#{source}\" />" : "<img src=\"#{source}\" #{attrs} />"
+      tag("img", { src: source, **options })
     end
 
     def rails_storage_proxy_path(upload, only_path: true)
@@ -59,7 +60,7 @@ class TestViewOverrides < Minitest::Test
     html = @view.image_tag(upload, width: 400, quality: :auto, class: "avatar")
 
     assert_includes html,
-                    "src=\"https://uploads.b-cdn.net/rails/active_storage/blobs/proxy/avatar-key/avatar.jpg?width=400&quality=85\""
+                    "src=\"https://uploads.b-cdn.net/rails/active_storage/blobs/proxy/avatar-key/avatar.jpg?width=400&amp;quality=85\""
     assert_includes html, "class=\"avatar\""
   end
 
@@ -96,7 +97,7 @@ class TestViewOverrides < Minitest::Test
 
     html = @view.image_tag(upload, width: 300)
 
-    assert_includes html, "src=\"https://uploads.b-cdn.net/avatar-key?width=300&optimizer=image\""
+    assert_includes html, "src=\"https://uploads.b-cdn.net/avatar-key?width=300&amp;optimizer=image\""
   end
 
   def test_image_tag_with_upload_object_can_append_extension_for_mapping_urls
@@ -108,7 +109,7 @@ class TestViewOverrides < Minitest::Test
 
     html = @view.image_tag(upload, width: 300)
 
-    assert_includes html, "src=\"https://uploads.b-cdn.net/avatar-key.jpg?width=300&optimizer=image\""
+    assert_includes html, "src=\"https://uploads.b-cdn.net/avatar-key.jpg?width=300&amp;optimizer=image\""
   end
 
   def test_image_tag_without_transform_uses_upload_zone_when_mapping_is_configured
@@ -201,7 +202,7 @@ class TestViewOverrides < Minitest::Test
                                  quality: :auto,
                                  class: "hero")
 
-    assert_includes html, "src=\"https://uploads.b-cdn.net/abc123?width=400&quality=85\""
+    assert_includes html, "src=\"https://uploads.b-cdn.net/abc123?width=400&amp;quality=85\""
     assert_includes html, "class=\"hero\""
   end
 

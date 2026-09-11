@@ -137,6 +137,55 @@ class TestTransformer < Minitest::Test
     assert_equal 75, params[:quality]
   end
 
+  def test_quality_accepts_api_boundaries_as_integers_and_strings
+    [0, "0", 100, "100"].each do |quality|
+      assert_equal quality.to_i, Bunnycdn::Transformer.new(quality: quality).to_params[:quality]
+    end
+  end
+
+  def test_quality_auto_preserves_zero_default
+    Bunnycdn.configure { |config| config.default_quality = 0 }
+
+    assert_equal "quality=0", Bunnycdn::Transformer.new(quality: :auto).to_query_string
+  end
+
+  def test_invalid_quality_is_omitted
+    [-1, "-1", 101, "101", "85invalid", "", 85.5, nil, false].each do |quality|
+      refute Bunnycdn::Transformer.new(quality: quality).to_params.key?(:quality), quality.inspect
+    end
+  end
+
+  def test_image_class_maps_to_bunny_class_without_using_css_class
+    params = Bunnycdn::Transformer.new(image_class: :thumbnail, class: "rounded", width: 300).to_params
+
+    assert_equal({ width: 300, class: "thumbnail" }, params)
+  end
+
+  def test_empty_image_class_is_omitted
+    [nil, ""].each do |name|
+      assert_empty Bunnycdn::Transformer.new(image_class: name).to_params
+    end
+  end
+
+  def test_image_class_in_transformation_array
+    params = Bunnycdn::Transformer.new(transformation: [{ image_class: :hero }]).to_params
+
+    assert_equal({ class: "hero" }, params)
+  end
+
+  def test_image_class_query_encodes_utf8_and_control_characters
+    name = "Größe\n\t\"&quality=0#/test"
+    query = Bunnycdn::Transformer.new(image_class: name).to_query_string
+
+    assert_equal "class=Gr%C3%B6%C3%9Fe%0A%09%22%26quality%3D0%23%2Ftest", query
+  end
+
+  def test_heic_and_heif_are_not_output_formats
+    %i[heic heif].each do |format|
+      refute Bunnycdn::Transformer.new(format: format).to_params.key?(:format)
+    end
+  end
+
   # === Effects ===
 
   def test_effect_grayscale_maps_to_saturation

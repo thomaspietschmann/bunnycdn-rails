@@ -68,8 +68,8 @@ lib/bunnycdn/
 ### Configuration validation
 
 `Bunnycdn.configure` → `validate!` enforces:
-- Zone URLs must start with `http`
-- `default_quality` must be 1–100 or nil
+- Zone URLs must start with `http://` or `https://`
+- `default_quality` must be 0–100 or nil
 - `upload_strategy` must be `:active_storage` or `:mapping`
 
 ### RuboCop style notes

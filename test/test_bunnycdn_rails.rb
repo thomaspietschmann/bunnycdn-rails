@@ -56,7 +56,7 @@ class TestBunnycdnRails < Minitest::Test
 
   def test_validates_default_quality
     assert_raises(Bunnycdn::Error) do
-      Bunnycdn.configure { |c| c.default_quality = 0 }
+      Bunnycdn.configure { |c| c.default_quality = -1 }
     end
   end
 
@@ -103,9 +103,9 @@ class TestBunnycdnRails < Minitest::Test
   end
 
   def test_default_quality_boundary_values_are_valid
-    Bunnycdn.configure { |c| c.default_quality = 1 }
+    Bunnycdn.configure { |c| c.default_quality = 0 }
 
-    assert_equal 1, Bunnycdn.configuration.default_quality
+    assert_equal 0, Bunnycdn.configuration.default_quality
 
     Bunnycdn.configure { |c| c.default_quality = 100 }
 

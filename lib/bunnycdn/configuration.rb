@@ -22,7 +22,7 @@ module Bunnycdn
     # Alternatively, just set `config.asset_host` in Rails – works the same way.
     attr_accessor :static_zone_url
 
-    # Optional default quality for image optimization (1-100). When nil, the
+    # Optional default quality for image optimization (0-100). When nil, the
     # gem does not emit a `quality=` parameter unless the caller passes one
     # explicitly, so Bunny's pull-zone settings stay in control.
     # Default: nil
@@ -90,8 +90,8 @@ module Bunnycdn
         raise Error, "static_zone_url must be a full URL (https://...)"
       end
 
-      if !default_quality.nil? && (!default_quality.is_a?(Integer) || default_quality <= 0 || default_quality > 100)
-        raise Error, "default_quality must be nil or an integer between 1 and 100"
+      if !default_quality.nil? && (!default_quality.is_a?(Integer) || !(0..100).cover?(default_quality))
+        raise Error, "default_quality must be nil or an integer between 0 and 100"
       end
 
       unless UPLOAD_STRATEGIES.include?(upload_strategy)
