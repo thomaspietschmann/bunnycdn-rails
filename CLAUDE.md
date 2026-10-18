@@ -57,6 +57,11 @@ lib/bunnycdn/
 
 | Cloudinary | Bunny | Gem behavior |
 |---|---|---|
+| `crop: :fill`/`:thumb` | `crop=W,H` is a pixel cut-out of the original | emits `aspect_ratio=W:H` + `width`/`height` instead |
+| `crop: :thumb, gravity: :face` | `face_crop=W,H` is also pixel-based | emits `face_crop=true` + `aspect_ratio` + dimensions |
+| `crop: :crop` (+ `x`/`y`) | `crop=W,H[,X,Y]` | only mode that maps to Bunny `crop=` |
+| `upscaling: true` | values are `off`/`resampling` | booleans translated |
+| `rotate`/`angle` | 90° steps only | other angles dropped |
 | `grayscale` effect | no equivalent | emits `saturation=-100` |
 | `quality: :auto` | no `q_auto` | uses `default_quality` if set; otherwise omitted |
 | `fetch_format: :auto` | global WebP/AVIF toggle | dropped; enable in Bunny dashboard |

@@ -84,7 +84,7 @@ class TestCloudinaryCompat < Minitest::Test
 
     assert_includes html, "saturation=-100" # grayscale → desaturate (Bunny has no grayscale)
     refute_includes html, "grayscale"
-    assert_includes html, "crop=1600,1600"
+    assert_includes html, "width=1600&height=1600&aspect_ratio=1:1"
     assert_includes html, "class=\"avatar__image\""
     assert_includes html, "loading=\"lazy\""
   end

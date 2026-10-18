@@ -87,30 +87,118 @@ class TestTransformer < Minitest::Test
   end
 
   def test_crop_fill_with_dimensions
+    # Bunny's crop=W,H is a pixel cut-out of the original; Cloudinary :fill is
+    # "crop to ratio, then scale". That is aspect_ratio + width/height on Bunny.
     t = Bunnycdn::Transformer.new(width: 400, height: 300, crop: :fill)
     params = t.to_params
 
-    assert_equal "400,300", params[:crop]
+    assert_equal "4:3", params[:aspect_ratio]
+    assert_equal 400, params[:width]
+    assert_equal 300, params[:height]
+    refute params.key?(:crop)
+  end
+
+  def test_crop_fill_keeps_explicit_aspect_ratio
+    t = Bunnycdn::Transformer.new(width: 400, height: 300, crop: :fill, aspect_ratio: "16:9")
+
+    assert_equal "16:9", t.to_params[:aspect_ratio]
+  end
+
+  def test_crop_fill_with_width_only_and_aspect_ratio
+    t = Bunnycdn::Transformer.new(width: 400, crop: :fill, aspect_ratio: "1:1")
+    params = t.to_params
+
+    assert_equal({ width: 400, aspect_ratio: "1:1" }, params)
+  end
+
+  def test_crop_lfill_behaves_like_fill
+    t = Bunnycdn::Transformer.new(width: 300, height: 300, crop: :lfill)
+
+    assert_equal "1:1", t.to_params[:aspect_ratio]
+  end
+
+  def test_crop_crop_extracts_pixels_from_original
+    t = Bunnycdn::Transformer.new(width: 800, height: 600, crop: :crop)
+    params = t.to_params
+
+    assert_equal "800,600", params[:crop]
     refute params.key?(:width)
     refute params.key?(:height)
+  end
+
+  def test_crop_crop_with_offset
+    t = Bunnycdn::Transformer.new(width: 800, height: 600, x: 10, y: 20, crop: :crop, gravity: :north)
+    params = t.to_params
+
+    assert_equal "800,600,10,20", params[:crop]
+    refute params.key?(:crop_gravity) # positioned crops ignore gravity
+  end
+
+  def test_raw_bunny_crop_string_passes_through
+    t = Bunnycdn::Transformer.new(crop: "800,600", gravity: :north, width: 400)
+    params = t.to_params
+
+    assert_equal "800,600", params[:crop]
+    assert_equal "north", params[:crop_gravity]
+    assert_equal 400, params[:width] # Bunny resizes after cropping
+  end
+
+  def test_raw_bunny_positioned_crop_string_passes_through
+    t = Bunnycdn::Transformer.new(crop: "800,600,10,20")
+
+    assert_equal "crop=800,600,10,20", t.to_query_string
   end
 
   def test_crop_thumb_with_gravity_center
     t = Bunnycdn::Transformer.new(width: 200, height: 200, crop: :thumb, gravity: :center)
     params = t.to_params
 
-    assert_equal "200,200", params[:crop]
+    assert_equal "1:1", params[:aspect_ratio]
     assert_equal "center", params[:crop_gravity]
+    assert_equal 200, params[:width]
+    refute params.key?(:crop)
   end
 
   def test_crop_thumb_with_gravity_face
+    # face_crop=true keeps the detected faces in frame; aspect_ratio + width
+    # then produce the thumbnail. face_crop=W,H would be a pixel cut-out.
     t = Bunnycdn::Transformer.new(width: 600, height: 600, crop: :thumb, gravity: :face)
     params = t.to_params
 
-    assert_equal "600,600", params[:face_crop]
+    assert_equal "true", params[:face_crop]
+    assert_equal "1:1", params[:aspect_ratio]
+    assert_equal 600, params[:width]
+    assert_equal 600, params[:height]
     refute params.key?(:crop)
-    refute params.key?(:width)
-    refute params.key?(:height)
+    refute params.key?(:crop_gravity)
+  end
+
+  def test_crop_thumb_with_gravity_faces_alias
+    t = Bunnycdn::Transformer.new(width: 300, height: 200, crop: :thumb, gravity: :faces)
+
+    assert_equal "true", t.to_params[:face_crop]
+  end
+
+  def test_face_gravity_without_height_still_enables_face_crop
+    t = Bunnycdn::Transformer.new(width: 300, crop: :thumb, gravity: :face)
+    params = t.to_params
+
+    assert_equal({ width: 300, face_crop: "true" }, params)
+  end
+
+  def test_gravity_auto_is_dropped
+    t = Bunnycdn::Transformer.new(width: 400, height: 300, crop: :fill, gravity: :auto)
+
+    refute t.to_params.key?(:crop_gravity)
+  end
+
+  def test_direct_face_crop_boolean
+    assert_equal "face_crop=true", Bunnycdn::Transformer.new(face_crop: true).to_query_string
+    assert_equal "", Bunnycdn::Transformer.new(face_crop: false).to_query_string
+  end
+
+  def test_direct_face_crop_dimensions
+    assert_equal "face_crop=800,1000", Bunnycdn::Transformer.new(face_crop: "800,1000").to_query_string
   end
 
   # === Quality ===
@@ -274,9 +362,64 @@ class TestTransformer < Minitest::Test
                    sharpen: "true",
                    flip: "true",
                    flop: "false",
-                   upscaling: "false",
+                   upscaling: "off",
                    rotate: 90
                  }, t.to_params)
+  end
+
+  # === upscaling (Bunny: off | resampling) ===
+
+  def test_upscaling_accepts_bunny_modes
+    assert_equal "resampling", Bunnycdn::Transformer.new(upscaling: "resampling").to_params[:upscaling]
+    assert_equal "off", Bunnycdn::Transformer.new(upscaling: :off).to_params[:upscaling]
+  end
+
+  def test_upscaling_true_means_resampling
+    assert_equal "resampling", Bunnycdn::Transformer.new(upscaling: true).to_params[:upscaling]
+  end
+
+  def test_upscaling_unknown_value_is_dropped
+    refute Bunnycdn::Transformer.new(upscaling: "bicubic").to_params.key?(:upscaling)
+  end
+
+  # === rotate (90-degree steps only) ===
+
+  def test_rotate_accepts_documented_values
+    [-270, -180, -90, 0, 90, 180, 270].each do |deg|
+      assert_equal deg, Bunnycdn::Transformer.new(rotate: deg).to_params[:rotate]
+    end
+  end
+
+  def test_rotate_normalizes_other_right_angles
+    assert_equal 0, Bunnycdn::Transformer.new(rotate: 360).to_params[:rotate]
+    assert_equal 90, Bunnycdn::Transformer.new(rotate: 450).to_params[:rotate]
+  end
+
+  def test_rotate_drops_arbitrary_angles
+    refute Bunnycdn::Transformer.new(angle: 45).to_params.key?(:rotate)
+  end
+
+  # === Documented value ranges are clamped ===
+
+  def test_integer_params_are_clamped_to_documented_ranges
+    t = Bunnycdn::Transformer.new(blur: 500, sepia: -5, hue: 120, brightness: -300, gamma: 101)
+
+    assert_equal({ blur: 100, sepia: 0, hue: 100, brightness: -100, gamma: 100 }, t.to_params)
+  end
+
+  def test_effect_blur_is_clamped
+    assert_equal 100, Bunnycdn::Transformer.new(effect: "blur:300").to_params[:blur]
+  end
+
+  # === aspect_ratio ===
+
+  def test_numeric_aspect_ratio_becomes_ratio_string
+    assert_equal "3:2", Bunnycdn::Transformer.new(aspect_ratio: 1.5).to_params[:aspect_ratio]
+    assert_equal "1:1", Bunnycdn::Transformer.new(aspect_ratio: 1).to_params[:aspect_ratio]
+  end
+
+  def test_non_positive_aspect_ratio_is_dropped
+    refute Bunnycdn::Transformer.new(aspect_ratio: 0).to_params.key?(:aspect_ratio)
   end
 
   def test_cloudinary_angle_maps_to_bunny_rotate
@@ -336,7 +479,9 @@ class TestTransformer < Minitest::Test
     )
     params = t.to_params
     # DPR 2.0 × 85 = 170
-    assert_equal "170,170", params[:crop]
+    assert_equal 170, params[:width]
+    assert_equal 170, params[:height]
+    assert_equal "1:1", params[:aspect_ratio]
     assert_equal "center", params[:crop_gravity]
     # sharpen from second transformation overrides grayscale from first
     assert_equal "true", params[:sharpen]
@@ -374,7 +519,8 @@ class TestTransformer < Minitest::Test
     )
     params = t.to_params
 
-    assert_equal "1600,1600", params[:crop]
+    assert_equal 1600, params[:width]
+    assert_equal "1:1", params[:aspect_ratio]
     assert_equal "center", params[:crop_gravity]
     assert_equal(-100, params[:saturation])
     refute params.key?(:grayscale)
@@ -493,7 +639,7 @@ class TestTransformer < Minitest::Test
     t = Bunnycdn::Transformer.new(width: 400, height: 300, crop: :fill, gravity: :north)
     params = t.to_params
 
-    assert_equal "400,300", params[:crop]
+    assert_equal "4:3", params[:aspect_ratio]
     assert_equal "north", params[:crop_gravity]
   end
 
@@ -592,9 +738,9 @@ class TestTransformer < Minitest::Test
   end
 
   def test_boolean_option_numeric_zero
-    t = Bunnycdn::Transformer.new(upscaling: 0)
+    t = Bunnycdn::Transformer.new(flop: 0)
 
-    assert_equal "false", t.to_params[:upscaling]
+    assert_equal "false", t.to_params[:flop]
   end
 
   def test_boolean_option_string_one
@@ -620,7 +766,7 @@ class TestTransformer < Minitest::Test
   end
 
   def test_query_encoding_leaves_commas_intact
-    t = Bunnycdn::Transformer.new(width: 400, height: 300, crop: :fill)
+    t = Bunnycdn::Transformer.new(width: 400, height: 300, crop: :crop)
     qs = t.to_query_string
 
     assert_includes qs, "crop=400,300"

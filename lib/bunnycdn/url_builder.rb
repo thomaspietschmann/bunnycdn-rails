@@ -19,7 +19,7 @@ module Bunnycdn
       width height widths crop gravity quality fetch_format format effect
       dpr secure transformation aspect_ratio optimizer sharpen blur sepia
       brightness contrast saturation hue gamma tint flip flop rotate
-      angle upscaling focus_crop image_class page flags
+      angle upscaling focus_crop face_crop x y image_class page flags
     ].to_set.freeze
 
     class << self

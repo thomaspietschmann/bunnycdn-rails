@@ -9,21 +9,35 @@ module Bunnycdn
   # This class maps the Cloudinary conventions used throughout the innoq CMS
   # to their Bunny equivalents, making migration straightforward.
   #
-  # Verified against https://bunny.net/docs/optimizer/dynamic-images/overview (September 2026).
+  # Verified against https://bunny.net/docs/optimizer/dynamic-images (October 2026).
+  # Bunny applies operations in a fixed order: crop (crop, aspect_ratio,
+  # focus_crop, face_crop) → resize (width, height) → flip/flop/rotate →
+  # blur/sharpen → color adjustments → format/quality.
+  #
   # Notable differences from Cloudinary, handled here:
+  #   * Bunny `crop=W,H` is a pixel cut-out of the ORIGINAL image, not a
+  #     "scale to fill" → Cloudinary `crop: :fill`/`:thumb` becomes
+  #     `aspect_ratio=W:H` + `width`/`height` (crop to ratio, then resize)
   #   * Bunny has no `grayscale` parameter   → emit `saturation=-100`
   #   * Bunny has no `q_auto`                → emit a configured numeric quality,
   #                                           or omit `quality` entirely
   #   * Bunny enables WebP/AVIF globally     → `fetch_format: :auto` emits nothing
+  #   * Bunny `upscaling` is `off|resampling`, not a boolean
+  #   * Bunny `rotate` only accepts multiples of 90 degrees
   #   * Bunny cannot rasterize PDFs          → `page:`/`format: :pdf` are dropped
   class Transformer
     # Cloudinary crop modes → Bunny behavior mapping.
+    #   :proportional  scale within width/height, keep aspect ratio (no crop)
+    #   :fill          crop to the W:H aspect ratio, then scale to W×H
+    #   :pixel         cut W×H pixels out of the original (Bunny `crop=`)
     CROP_MODES = {
       limit: :proportional, # Scale down to fit within width/height, keep aspect ratio
       scale: :proportional, # Same as limit for Bunny
       fit: :proportional,
-      fill: :crop,          # Crop to exact dimensions
-      thumb: :crop          # Crop to exact dimensions (gravity handled separately)
+      fill: :fill,          # Crop to aspect ratio, then scale to exact dimensions
+      lfill: :fill,         # Same as fill (Bunny never upscales unless asked)
+      thumb: :fill,         # Same as fill (face gravity handled separately)
+      crop: :pixel          # Extract exactly W×H pixels from the original
     }.freeze
 
     # Cloudinary gravity values → Bunny crop_gravity values.
@@ -36,9 +50,14 @@ module Bunnycdn
       north_east: "northeast",
       north_west: "northwest",
       south_east: "southeast",
-      south_west: "southwest",
-      face: "center" # Bunny exposes face detection via the separate face_crop param
+      south_west: "southwest"
     }.freeze
+
+    # Cloudinary gravity values that mean "find the face(s)" → Bunny face_crop.
+    FACE_GRAVITIES = %i[face faces].freeze
+
+    # Raw Bunny crop syntax: "W,H" or "W,H,X,Y" (pixels of the original image).
+    PIXEL_CROP = /\A\d+,\d+(?:,\d+,\d+)?\z/
 
     # Image formats Bunny can actually convert to. Anything else (e.g. :pdf,
     # used by the talks slides view) is dropped so we return the raw asset URL.
@@ -47,13 +66,28 @@ module Bunnycdn
       "jpg" => "jpeg"
     }.freeze
 
-    DIRECT_INTEGER_PARAMS = %i[
-      blur sepia brightness contrast saturation hue gamma
-    ].freeze
+    # Documented value ranges; out-of-range values are clamped so Cloudinary
+    # scales (e.g. blur 1–2000) degrade gracefully instead of being rejected.
+    INTEGER_RANGES = {
+      blur: 0..100,
+      sepia: 0..100,
+      hue: 0..100,
+      brightness: -100..100,
+      contrast: -100..100,
+      saturation: -100..100,
+      gamma: -100..100
+    }.freeze
+
+    DIRECT_INTEGER_PARAMS = INTEGER_RANGES.keys.freeze
 
     DIRECT_BOOLEAN_PARAMS = %i[
-      sharpen flip flop upscaling
+      sharpen flip flop
     ].freeze
+
+    # Bunny rotates in 90-degree steps only.
+    ROTATIONS = [-270, -180, -90, 0, 90, 180, 270].freeze
+
+    UPSCALING_MODES = %w[off resampling].freeze
 
     def initialize(options = {})
       @options = normalize_options(options)
@@ -106,31 +140,70 @@ module Bunnycdn
     end
 
     def apply_crop(params)
-      crop = @options[:crop]&.to_sym
-      gravity = @options[:gravity]&.to_sym
+      crop = @options[:crop]
+      return if crop.nil?
+
+      # Raw Bunny syntax ("800,600" / "800,600,10,20") is passed through as-is.
+      if crop.to_s.match?(PIXEL_CROP)
+        params[:crop] = crop.to_s
+        params[:crop_gravity] = bunny_gravity
+        return
+      end
+
+      case CROP_MODES[crop.to_sym] || :proportional
+      when :fill then apply_fill_crop(params)
+      when :pixel then apply_pixel_crop(params)
+        # :proportional → width/height stay as-is; Bunny scales proportionally.
+      end
+    end
+
+    # Cloudinary fill/thumb: crop to the target aspect ratio, then resize.
+    # Bunny: `aspect_ratio=W:H` (crop runs first) + `width`/`height` (resize).
+    # Bunny documents crop_gravity for `crop=` only; it is emitted here as a
+    # best-effort hint, the aspect_ratio crop itself is centred.
+    def apply_fill_crop(params)
       width = params[:width]
       height = params[:height]
 
-      return unless crop
+      params[:face_crop] = "true" if face_gravity?
 
-      mode = CROP_MODES[crop] || :proportional
-      # Cropping to exact dimensions only makes sense when both are known.
-      return unless mode == :crop && width && height
+      # Cropping to an exact ratio only makes sense when both dimensions are known.
+      return unless width && height
 
-      if crop == :thumb && gravity == :face
-        params[:face_crop] = "#{width},#{height}"
+      params[:aspect_ratio] = reduce_ratio(width, height) unless @options.key?(:aspect_ratio)
+      params[:crop_gravity] = bunny_gravity unless face_gravity?
+    end
+
+    # Cloudinary `crop: :crop` extracts W×H pixels from the original, optionally
+    # at an x/y offset — exactly what Bunny's `crop=` does.
+    def apply_pixel_crop(params)
+      width = params.delete(:width)
+      height = params.delete(:height)
+      return unless width && height
+
+      x = integer_option(@options[:x])
+      y = integer_option(@options[:y])
+
+      if x && y
+        params[:crop] = "#{width},#{height},#{x},#{y}"
       else
         params[:crop] = "#{width},#{height}"
-        bunny_gravity = GRAVITY_MAP[gravity] if gravity
-        params[:crop_gravity] = bunny_gravity if bunny_gravity
+        params[:crop_gravity] = bunny_gravity
       end
+    end
 
-      # The crop/face_crop params already carry the target size; drop the raw
-      # width/height so Bunny doesn't also down-scale after cropping.
-      params.delete(:width)
-      params.delete(:height)
-      # For :proportional modes (limit/scale/fit) width/height stay as-is —
-      # Bunny scales proportionally when only one or both are given without crop.
+    def face_gravity?
+      FACE_GRAVITIES.include?(@options[:gravity]&.to_sym)
+    end
+
+    def bunny_gravity
+      gravity = @options[:gravity]&.to_sym
+      GRAVITY_MAP[gravity] if gravity
+    end
+
+    def reduce_ratio(width, height)
+      divisor = width.gcd(height)
+      "#{width / divisor}:#{height / divisor}"
     end
 
     def apply_quality(params)
@@ -156,15 +229,15 @@ module Bunnycdn
       when /\Asharpen(?::\d+)?\z/
         params[:sharpen] = "true" # Bunny sharpen is boolean; intensity is ignored
       when /\Ablur(?::(\d+))?\z/
-        params[:blur] = ::Regexp.last_match(1)&.to_i || 5
+        params[:blur] = clamp(:blur, ::Regexp.last_match(1)&.to_i || 5)
       when /\Asepia(?::(\d+))?\z/
-        params[:sepia] = ::Regexp.last_match(1)&.to_i || 50
+        params[:sepia] = clamp(:sepia, ::Regexp.last_match(1)&.to_i || 50)
       when /\Abrightness(?::(-?\d+))?\z/
-        params[:brightness] = ::Regexp.last_match(1)&.to_i || 10
+        params[:brightness] = clamp(:brightness, ::Regexp.last_match(1)&.to_i || 10)
       when /\Acontrast(?::(-?\d+))?\z/
-        params[:contrast] = ::Regexp.last_match(1)&.to_i || 10
+        params[:contrast] = clamp(:contrast, ::Regexp.last_match(1)&.to_i || 10)
       when /\Asaturation(?::(-?\d+))?\z/
-        params[:saturation] = ::Regexp.last_match(1)&.to_i || 10
+        params[:saturation] = clamp(:saturation, ::Regexp.last_match(1)&.to_i || 10)
       end
     end
 
@@ -190,13 +263,14 @@ module Bunnycdn
     def apply_direct_transformations(params)
       params[:class] = string_option(@options[:image_class]) if @options.key?(:image_class)
       params[:optimizer] = string_option(@options[:optimizer]) if @options.key?(:optimizer)
-      params[:aspect_ratio] = string_option(@options[:aspect_ratio]) if @options.key?(:aspect_ratio)
+      params[:aspect_ratio] = aspect_ratio_option(@options[:aspect_ratio]) if @options.key?(:aspect_ratio)
       params[:focus_crop] = string_option(@options[:focus_crop]) if @options.key?(:focus_crop)
+      params[:face_crop] = face_crop_option(@options[:face_crop]) if @options.key?(:face_crop)
       params[:tint] = tint_option(@options[:tint]) if @options.key?(:tint)
 
       DIRECT_INTEGER_PARAMS.each do |key|
         value = integer_option(@options[key])
-        params[key] = value if value
+        params[key] = clamp(key, value) if value
       end
 
       DIRECT_BOOLEAN_PARAMS.each do |key|
@@ -204,12 +278,19 @@ module Bunnycdn
         params[key] = value if value
       end
 
-      rotate = integer_option(@options.key?(:rotate) ? @options[:rotate] : @options[:angle])
+      params[:upscaling] = upscaling_option(@options[:upscaling]) if @options.key?(:upscaling)
+
+      rotate = rotate_option(@options.key?(:rotate) ? @options[:rotate] : @options[:angle])
       params[:rotate] = rotate if rotate
     end
 
     def integer_option(value)
       Integer(value, exception: false)
+    end
+
+    def clamp(key, value)
+      range = INTEGER_RANGES[key]
+      range ? value.clamp(range) : value
     end
 
     def boolean_option(value)
@@ -225,9 +306,46 @@ module Bunnycdn
       end
     end
 
+    # Bunny: `upscaling=off|resampling`. Booleans are accepted for convenience.
+    def upscaling_option(value)
+      mode = value.to_s.downcase
+      return mode if UPSCALING_MODES.include?(mode)
+
+      case boolean_option(value)
+      when "true" then "resampling"
+      when "false" then "off"
+      end
+    end
+
+    # Bunny: `face_crop=true` (keep all faces in frame) or `face_crop=W,H`
+    # (W×H pixels of the original, centred on the faces).
+    def face_crop_option(value)
+      return value.to_s if value.to_s.match?(/\A\d+,\d+\z/)
+
+      "true" if boolean_option(value) == "true"
+    end
+
+    # Bunny only rotates in 90-degree steps between -270 and 270. Other
+    # multiples of 90 are normalised; arbitrary angles are dropped.
+    def rotate_option(value)
+      degrees = integer_option(value)
+      return unless degrees && (degrees % 90).zero?
+
+      ROTATIONS.include?(degrees) ? degrees : degrees % 360
+    end
+
     def string_option(value)
       value = value.to_s
       value.empty? ? nil : value
+    end
+
+    # Bunny: "W:H". Cloudinary also allows numeric ratios such as 1.5 → "3:2".
+    def aspect_ratio_option(value)
+      return string_option(value) unless value.is_a?(Numeric)
+      return if value <= 0
+
+      ratio = value.to_r.rationalize(Rational(1, 1000))
+      "#{ratio.numerator}:#{ratio.denominator}"
     end
 
     def tint_option(value)

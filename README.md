@@ -154,7 +154,13 @@ end
 2. **Static pull zone** — origin = your web server.
 3. **WebP/AVIF** — enable in Optimizer → Settings (replaces `fetch_format: :auto`).
 
-### Bunny platform updates (checked September 11, 2026)
+### Bunny platform updates (checked October 18, 2026)
+
+The Dynamic Images API reference was re-checked on October 18, 2026. Note that
+`optimizer=image` (used by the `:mapping` strategy for extensionless blob keys)
+no longer appears in the current documentation; it is kept for compatibility
+with existing zones, but prefer the `:active_storage` strategy or
+`append_upload_extension` for new setups.
 
 The [Bunny changelog](https://bunny.net/docs/changelog) includes these relevant
 updates since this gem's June review:
@@ -394,9 +400,12 @@ cl_path upload_path(user.avatar), width: 200, height: 200, crop: :thumb,
 |---|---|---|
 | `width:` / `height:` | `width` / `height` | scale proportionally |
 | `crop: :limit` / `:scale` / `:fit` | width/height only | proportional, no crop param |
-| `crop: :fill` / `:thumb` | `crop=W,H` | center-crop to exact size |
-| `crop: :thumb, gravity: :face` | `face_crop=W,H` | face detection |
-| `gravity: :north…` | `crop_gravity=…` | |
+| `crop: :fill` / `:lfill` / `:thumb` | `aspect_ratio=W:H` + `width`/`height` | Bunny crops to the ratio first, then resizes. (`crop=W,H` is a **pixel cut-out of the original**, so it is *not* used here.) |
+| `crop: :thumb, gravity: :face` | `face_crop=true` + `aspect_ratio` + `width`/`height` | face detection keeps all faces in frame, then crops/resizes |
+| `crop: :crop` (+ `x:`/`y:`) | `crop=W,H` / `crop=W,H,X,Y` | pixel cut-out of the original, like Cloudinary |
+| `crop: "800,600"` / `"800,600,10,20"` | `crop=…` | raw Bunny syntax, passed through |
+| `gravity: :north…` | `crop_gravity=…` | documented by Bunny for `crop=` only; emitted with `aspect_ratio` as a best-effort hint |
+| `face_crop: true` / `"800,1000"` | `face_crop=…` | passed through |
 | `quality: :auto` | `quality=<default_quality>` or omitted | uses configured fallback only when set |
 | `quality: 75` | `quality=75` | accepts integers or digit strings from 0 to 100; invalid values are omitted |
 | `image_class: :thumbnail` | `class=thumbnail` | named Bunny preset; distinct from the HTML `class:` option |
@@ -406,8 +415,10 @@ cl_path upload_path(user.avatar), width: 200, height: 200, crop: :thumb,
 | `effect: "blur:10"` | `blur=10` | |
 | `effect: :sharpen` | `sharpen=true` | boolean only (intensity ignored) |
 | `aspect_ratio:` / `gamma:` / `hue:` / `tint:` | same Bunny params | passed through |
-| `flip:` / `flop:` / `rotate:` / `upscaling:` | same Bunny params | normalized |
-| `angle: "-90"` | `rotate=-90` | Cloudinary alias |
+| `flip:` / `flop:` | same Bunny params | booleans |
+| `rotate:` / `angle: "-90"` | `rotate=-90` | 90° steps only (−270…270); other angles are dropped |
+| `upscaling: true` / `:resampling` | `upscaling=resampling` | Bunny values are `off` / `resampling`; booleans are translated |
+| `blur:` / `sepia:` / `hue:` (0–100), `brightness:` / `contrast:` / `saturation:` / `gamma:` (−100…100) | same Bunny params | clamped to the documented range |
 | `dpr: "2.0"` | *(multiplies width/height)* | |
 | `transformation: [...]` | *(flattened/merged)* | |
 | `width: "100%"` / `"400px"` | *(HTML attribute)* | display sizes, not CDN resizes |
@@ -424,6 +435,13 @@ cl_path upload_path(user.avatar), width: 200, height: 200, crop: :thumb,
 - **No PDF page rasterization** (`page: N`) → dropped. Bunny cannot turn a PDF
   page into an image; pre-render server-side or render client-side (PDF.js).
 - **No chained/overlay transformations** — arrays are flattened into one pass.
+- **`crop=W,H` is a pixel cut-out of the original image**, applied before any
+  resize. Cloudinary's `crop: :fill`/`:thumb` therefore maps to
+  `aspect_ratio=W:H` plus `width`/`height`. Bunny documents `crop_gravity` only
+  for `crop=`; an `aspect_ratio` crop is centred, so `gravity: :north` etc. may
+  have no effect there. Use `focus_crop` or a raw `crop: "W,H,X,Y"` when the
+  original dimensions are known.
+- **`rotate` only in 90° steps**; arbitrary Cloudinary `angle:` values are dropped.
 
 ## Releasing
 

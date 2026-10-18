@@ -2,6 +2,42 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-18
+
+### Fixed
+
+- **`crop: :fill` / `:thumb` no longer emit `crop=W,H`.** Bunny's `crop=` is a
+  pixel cut-out of the *original* image applied before resizing, so large
+  originals produced tiny centre fragments instead of a scaled, filled image.
+  These modes now emit `aspect_ratio=W:H` plus `width`/`height`, which is what
+  Bunny documents for "crop to ratio, then resize". `gravity: :face`/`:faces`
+  emits `face_crop=true` (keep faces in frame) instead of `face_crop=W,H`.
+  Existing URLs change, so Bunny will re-process affected images once.
+- `upscaling:` now emits Bunny's documented `off` / `resampling` values;
+  `true`/`false` are translated accordingly.
+- `rotate:` / `angle:` only emit the documented 90° steps (−270…270); other
+  right angles are normalised, arbitrary angles are dropped.
+- `blur`, `sepia`, `hue` (0–100) and `brightness`, `contrast`, `saturation`,
+  `gamma` (−100…100) are clamped to the documented ranges, including values
+  given via Cloudinary `effect:` strings such as `"blur:300"`.
+
+### Added
+
+- `crop: :crop` (Cloudinary pixel crop) maps to Bunny `crop=W,H`, with
+  `x:`/`y:` producing the positioned form `crop=W,H,X,Y`. Raw Bunny crop
+  strings (`crop: "800,600"`, `crop: "800,600,10,20"`) are passed through.
+- `crop: :lfill` is accepted as an alias of `:fill`.
+- `face_crop:` is accepted directly (`true` or `"W,H"`).
+- `gravity: :faces` is recognised alongside `:face`; `gravity: :auto` is dropped.
+- Numeric `aspect_ratio:` values (e.g. `1.5`) are converted to Bunny's
+  `W:H` syntax (`3:2`).
+
+### Changed
+
+- Refresh development dependencies: Rails 8.1.4, RuboCop 1.92.0,
+  rubocop-minitest 0.41.0, SimpleCov 1.3.2. Re-check the Bunny Dynamic Images
+  documentation as of October 18, 2026.
+
 ## [0.3.0] - 2026-09-11
 
 ### Added

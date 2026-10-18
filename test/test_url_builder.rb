@@ -115,7 +115,7 @@ class TestUrlBuilder < Minitest::Test
                                             { effect: "sharpen:100" }
                                           ])
     # 85 × 2.0 = 170, crop thumb + center
-    assert_includes url, "crop=170,170"
+    assert_includes url, "width=170&height=170&aspect_ratio=1:1"
     assert_includes url, "crop_gravity=center"
     assert_includes url, "sharpen=true"
     assert_includes url, "quality=85"
